@@ -1,3 +1,8 @@
+"""
+Things to learn:
+    - brushup torch view and reshape concepts
+"""
+
 import torch.nn as nn
 
 
@@ -45,7 +50,7 @@ class CausalAttention(nn.Module):
         return context_vectors
 
 
-class MultiHeadAttention(nn.Module):
+class MultiHeadAttentionV1(nn.Module):
     def __init__(self, d_in, d_out, context_length, num_heads, dropout, qkv_bias=False):
         super().__init__()
         self.heads = nn.ModuleList(
@@ -60,18 +65,97 @@ class MultiHeadAttention(nn.Module):
         return output
 
 
+class MultiHeadAttention(nn.Module):
+    """
+    Implementations of MultiHeadCausal attention with QKV weights combined.
+    This is more efficient implementation of attentions because all
+    the matrix multiplication happens at single go rather than iterating
+    over different self attentions blocks of the heads separately
+    """
+
+    def __init__(
+        self,
+        d_in,
+        d_out,
+        context_length,
+        num_heads,
+        dropout,
+        qkv_bias=False,
+        apply_mask=True,
+    ):
+        super().__init__()
+        assert d_out % num_heads == 0, "d_out must be divisible by num heads"
+        self.d_in = d_in
+        self.d_out = d_out
+        self.context_length = context_length
+        self.num_heads = num_heads
+        self.head_size = d_out // num_heads
+        self.apply_mask = True
+        self.W_query = nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.W_key = nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.W_value = nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.out_proj = nn.Linear(d_out, d_out)
+        self.dropout = nn.Dropout(dropout)
+        self.register_buffer(
+            "mask", torch.triu(torch.ones(context_length, context_length), diagonal=1)
+        )
+
+    def forward(self, x):
+        batch_dim, _, _ = x.shape
+        queries = self.W_query(x)
+        keys = self.W_key(x)
+        values = self.W_value(x)
+        queries = queries.view(
+            batch_dim, self.context_length, self.num_heads, self.head_size
+        )
+        keys = keys.view(batch_dim, self.context_length, self.num_heads, self.head_size)
+        values = values.view(
+            batch_dim, self.context_length, self.num_heads, self.head_size
+        )
+        keys = keys.transpose(1, 2)  # (batch, num_heads, context_length, head_size)
+        queries = queries.transpose(1, 2)
+        values = values.transpose(1, 2)
+        attention_scores = queries @ keys.transpose(
+            -1, -2
+        )  # (.., context_length, head_size) @ (.., head_size, context_length)
+        if self.apply_mask:
+            attention_scores = attention_scores.masked_fill(
+                self.mask.bool(), -torch.inf
+            )
+        attention_weights = torch.softmax(
+            attention_scores / keys.shape[-1] ** 2, dim=-1
+        )
+        attention_weights = self.dropout(attention_weights)
+        context_vectors = (
+            attention_weights @ values
+        )  # (.., context_length, context_length) @ (.., context_lenght, head_size)
+        context_vectors = context_vectors.contiguous().view(
+            batch_dim, self.context_length, self.d_out
+        )
+        return context_vectors
+
+
 if __name__ == "__main__":
+    import time
+
     import torch
 
-    batch, context_length, d_in = 2, 4, 8
+    batch, context_length, d_in, d_out = 1, 4, 4, 4
     dropout = 0
-    num_heads = 4
-    d_out = d_in // num_heads
+    num_heads = 2
 
-    X = torch.rand((batch, context_length, d_in))
-    attention = MultiHeadAttention(
+    X = torch.rand((batch, context_length, d_in)).to("cuda")
+    mha_v1 = MultiHeadAttentionV1(
         d_in, d_out, context_length, num_heads, dropout=dropout
-    )
-    context_vectors = attention(X)
+    ).to("cuda")
+
+    tic = time.time()
+    context_vectors = mha_v1(X)
+    tac = time.time()
+    mha = MultiHeadAttention(
+        d_in, d_out, context_length, num_heads, dropout=dropout
+    ).to("cuda")
+    context_vectors = mha(X)
     print(context_vectors)
-    print(context_vectors.shape)
+    tac = time.time()
+    print(f"total time = {(tac - tic):.6f}")
