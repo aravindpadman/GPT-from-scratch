@@ -53,9 +53,13 @@ class CausalAttention(nn.Module):
 class MultiHeadAttentionV1(nn.Module):
     def __init__(self, d_in, d_out, context_length, num_heads, dropout, qkv_bias=False):
         super().__init__()
+        assert (
+            d_out % num_heads == 0
+        ), f"d_out={d_out} must be divisible by num_heads={num_heads}"
+        head_size = d_out // num_heads
         self.heads = nn.ModuleList(
             [
-                CausalAttention(d_in, d_out, context_length, dropout)
+                CausalAttention(d_in, head_size, context_length, dropout)
                 for _ in range(num_heads)
             ]
         )
@@ -84,7 +88,9 @@ class MultiHeadAttention(nn.Module):
         apply_mask=True,
     ):
         super().__init__()
-        assert d_out % num_heads == 0, "d_out must be divisible by num heads"
+        assert (
+            d_out % num_heads == 0
+        ), f"d_out={d_out} must be divisible by num_heads={num_heads}"
         self.d_in = d_in
         self.d_out = d_out
         self.context_length = context_length
@@ -128,10 +134,11 @@ class MultiHeadAttention(nn.Module):
         attention_weights = self.dropout(attention_weights)
         context_vectors = (
             attention_weights @ values
-        )  # (.., context_length, context_length) @ (.., context_lenght, head_size)
+        )  # (.., context_length, context_length) @ (.., context_length, head_size)
         context_vectors = context_vectors.contiguous().view(
             batch_dim, self.context_length, self.d_out
         )
+        # context_vectors = self.out_proj(context_vectors)
         return context_vectors
 
 
@@ -140,22 +147,27 @@ if __name__ == "__main__":
 
     import torch
 
-    batch, context_length, d_in, d_out = 1, 4, 4, 4
+    batch, context_length, d_in, d_out = 1, 4, 1024, 1024
     dropout = 0
-    num_heads = 2
+    num_heads = 64
 
     X = torch.rand((batch, context_length, d_in)).to("cuda")
+    tic = time.time()
+    torch.manual_seed(123)
     mha_v1 = MultiHeadAttentionV1(
         d_in, d_out, context_length, num_heads, dropout=dropout
     ).to("cuda")
 
-    tic = time.time()
-    context_vectors = mha_v1(X)
     tac = time.time()
+    context_vectors = mha_v1(X)
+    print(context_vectors.shape)
+    print(f"total time = {(tac - tic):.6f}")
+    tic = time.time()
+    torch.manual_seed(123)
     mha = MultiHeadAttention(
         d_in, d_out, context_length, num_heads, dropout=dropout
     ).to("cuda")
     context_vectors = mha(X)
-    print(context_vectors)
+    print(context_vectors.shape)
     tac = time.time()
     print(f"total time = {(tac - tic):.6f}")
