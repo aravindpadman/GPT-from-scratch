@@ -3,6 +3,7 @@ Things to learn:
     - brushup torch view and reshape concepts
 """
 
+import torch
 import torch.nn as nn
 
 
@@ -96,7 +97,7 @@ class MultiHeadAttention(nn.Module):
         self.context_length = context_length
         self.num_heads = num_heads
         self.head_size = d_out // num_heads
-        self.apply_mask = True
+        self.apply_mask = apply_mask
         self.W_query = nn.Linear(d_in, d_out, bias=qkv_bias)
         self.W_key = nn.Linear(d_in, d_out, bias=qkv_bias)
         self.W_value = nn.Linear(d_in, d_out, bias=qkv_bias)
@@ -107,17 +108,15 @@ class MultiHeadAttention(nn.Module):
         )
 
     def forward(self, x):
-        batch_dim, _, _ = x.shape
+        batch_dim, seq_len, _ = (
+            x.shape
+        )  # sequence lenth can be less than context length
         queries = self.W_query(x)
         keys = self.W_key(x)
         values = self.W_value(x)
-        queries = queries.view(
-            batch_dim, self.context_length, self.num_heads, self.head_size
-        )
-        keys = keys.view(batch_dim, self.context_length, self.num_heads, self.head_size)
-        values = values.view(
-            batch_dim, self.context_length, self.num_heads, self.head_size
-        )
+        queries = queries.view(batch_dim, seq_len, self.num_heads, self.head_size)
+        keys = keys.view(batch_dim, seq_len, self.num_heads, self.head_size)
+        values = values.view(batch_dim, seq_len, self.num_heads, self.head_size)
         keys = keys.transpose(1, 2)  # (batch, num_heads, context_length, head_size)
         queries = queries.transpose(1, 2)
         values = values.transpose(1, 2)
@@ -125,9 +124,8 @@ class MultiHeadAttention(nn.Module):
             -1, -2
         )  # (.., context_length, head_size) @ (.., head_size, context_length)
         if self.apply_mask:
-            attention_scores = attention_scores.masked_fill(
-                self.mask.bool(), -torch.inf
-            )
+            mask = self.mask.bool()[:seq_len, :seq_len]
+            attention_scores = attention_scores.masked_fill(mask, -torch.inf)
         attention_weights = torch.softmax(
             attention_scores / keys.shape[-1] ** 2, dim=-1
         )
@@ -136,9 +134,9 @@ class MultiHeadAttention(nn.Module):
             attention_weights @ values
         )  # (.., context_length, context_length) @ (.., context_length, head_size)
         context_vectors = context_vectors.contiguous().view(
-            batch_dim, self.context_length, self.d_out
+            batch_dim, seq_len, self.d_out
         )
-        # context_vectors = self.out_proj(context_vectors)
+        context_vectors = self.out_proj(context_vectors)
         return context_vectors
 
 
