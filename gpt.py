@@ -84,7 +84,7 @@ class GPT(nn.Module):
             *[TransformerBlock(cfg) for _ in range(cfg["n_layers"])]
         )
         self.layer_norm_final = LayerNorm(cfg["emb_dim"])
-        self.ffd = nn.Linear(cfg["emb_dim"], cfg["vocab_size"])
+        self.ffd = nn.Linear(cfg["emb_dim"], cfg["vocab_size"], bias=False)
 
     def forward(self, ids):
         batch, seq_len = ids.shape
@@ -101,19 +101,30 @@ class GPT(nn.Module):
 if __name__ == "__main__":
     import torch.utils.tensorboard as tb
 
-    x = torch.randint(0, 1000, (2, 4))
+    x = torch.randint(0, 1000, (2, 4), device="cuda")
     print(f"input shape={x.shape}")
-    model = GPT(CONFIG)
+    torch.manual_seed(123)
+    model = GPT(CONFIG).to("cuda")
     # Set the model to evaluation mode to prevent updating gradients
-    model.eval()
+    with torch.no_grad():
+        out = model(x)
+        print(out)
 
-    # Use `torch.jit.trace` to trace the model's computation graph
-    traced_model = torch.jit.trace(model, x)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total number of parameters: {total_params:,}")
 
-    # Save the traced model to a file
-    traced_model.save("traced_model.pt")
+    total_params_bytes = total_params * 4  # considering float32
+    total_size_mb = total_params_bytes / (1024 * 1024)
+    print(f"total size of model in MB={total_size_mb:.2f}")
 
-    # Use TensorBoard to visualize the computational graph
-    writer = tb.SummaryWriter()
-    writer.add_graph(traced_model, x)
-    writer.close()
+    # model.eval()
+    ## Use `torch.jit.trace` to trace the model's computation graph
+    # traced_model = torch.jit.trace(model, x)
+
+    ## Save the traced model to a file
+    # traced_model.save("traced_model.pt")
+
+    ## Use TensorBoard to visualize the computational graph
+    # writer = tb.SummaryWriter()
+    # writer.add_graph(traced_model, x)
+    # writer.close()
