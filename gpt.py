@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 
 from attention import MultiHeadAttention
-from config import CONFIG
 
 
 class LayerNorm(nn.Module):
@@ -65,7 +64,7 @@ class TransformerBlock(nn.Module):
         return x
 
 
-class GPT(nn.Module):
+class GPT2(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.word_emb = nn.Embedding(cfg["vocab_size"], cfg["emb_dim"])
@@ -92,10 +91,12 @@ class GPT(nn.Module):
 if __name__ == "__main__":
     import torch.utils.tensorboard as tb
 
+    from config import CONFIG
+
     x = torch.randint(0, 1000, (2, 4), device="cuda")
     print(f"input shape={x.shape}")
     torch.manual_seed(123)
-    model = GPT(CONFIG).to("cuda")
+    model = GPT2(CONFIG).to("cuda")
     # Set the model to evaluation mode to prevent updating gradients
     with torch.no_grad():
         out = model(x)
