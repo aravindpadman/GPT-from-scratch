@@ -4,12 +4,14 @@
 # train loop
 # validation code
 # training monitoring in tensorboard
+# tensorboard integration
 
 
 import tiktoken
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from config import CONFIG
 from dataset import GPTDataset
@@ -50,7 +52,7 @@ def create_dataloaders(
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
-        drop_last=drop_last,
+        drop_last=False,
     )
     return train_loader, val_loader
 
@@ -70,12 +72,14 @@ def train_epoch(model, train_loader, loss_criteria, optimizer, epoch, tensorboar
 
 def compute_n_batch_loss(model, dataloader, loss_criteria, n_batches, device):
     loss_sum = 0.0
-    num_batches = min(num_batches, len(dataloader))
-    for idx, (X, y) in dataloader:
-        if idx < num_batches:
+    n_batches = min(n_batches, len(dataloader))
+    for idx, (X, y) in enumerate(dataloader):
+        if idx < n_batches:
             loss = compute_batch_loss(X, y, model, loss_criteria, device)
             loss_sum += loss.item()
-    return loss_sum / num_batches
+        else:
+            break
+    return loss_sum / n_batches
 
 
 def compute_batch_loss(X, y, model, loss_criteria, device):
@@ -84,6 +88,18 @@ def compute_batch_loss(X, y, model, loss_criteria, device):
     logits = model(X)
     loss = loss_criteria(logits.transpose(-1, -2), y)
     return loss
+
+
+def evaluate_model(model, train_loader, val_loader, loss_criteria, num_batches, device):
+    model.eval()
+    with torch.no_grad():
+        train_loss = compute_n_batch_loss(
+            model, train_loader, loss_criteria, num_batches, device
+        )
+        val_loss = compute_n_batch_loss(
+            model, val_loader, loss_criteria, num_batches, device
+        )
+    return train_loss, val_loss
 
 
 def train(cfg, text_path, device, eval_freq=5):
@@ -99,40 +115,37 @@ def train(cfg, text_path, device, eval_freq=5):
         drop_last=True,
     )
     model = GPT2(cfg).to(device)
-    loss = nn.CrossEntropyLoss()
-    train_loss, val_loss, token_seen = [], [], []
+    loss_criteria = nn.CrossEntropyLoss()
+    optimizer = None
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg["learning_rate"])
+    train_loss_array, val_loss_array, token_seen_array = [], [], []
     for epoch in range(1, cfg["epoch"] + 1):
-        for idx, (X, y) in enumerate(train_loader, 1):
+        for idx, (X, y) in tqdm(enumerate(train_loader, 1)):
             model.train()
+            optimizer.zero_grad()
             loss = compute_batch_loss(X, y, model, loss_criteria, device)
-            train_loss.append(loss.item())
+            loss.backward()
+            optimizer.step()
 
             if idx % eval_freq == 0:
-                # evalute the model
-                pass
+                train_loss, val_loss = evaluate_model(
+                    model,
+                    train_loader,
+                    val_loader,
+                    loss_criteria,
+                    num_batches=1,
+                    device=device,
+                )
+                train_loss_array.append(train_loss)
+                val_loss_array.append(val_loss)
+                print(
+                    f"epoch={epoch} batch={idx} train_loss={train_loss} val_loss={val_loss}"
+                )
+        print(f"max batches={idx}")
 
 
 if __name__ == "__main__":
+    text_path = "the-verdict.txt"
     device = "cuda"
-    raw_text = load_text("the-verdict.txt")
-    train_loader, val_loader = create_dataloaders(
-        raw_text=raw_text,
-        context_length=256,
-        stride=128,
-        train_test_split=0.8,
-        batch_size=8,
-        shuffle=True,
-        num_workers=0,
-        drop_last=True,
-    )
-    model = GPT2(CONFIG).to(device)
-    loss = nn.CrossEntropyLoss()
-    for tb in train_loader:
-        X, y = tb
-        X = X.to(device)
-        y = y.to(device)
-        logits = model(X)
-        output = loss(logits, y)
-        print(logits.shape)
-
-        break
+    eval_freq = 1
+    train(CONFIG, text_path=text_path, device=device, eval_freq=eval_freq)
