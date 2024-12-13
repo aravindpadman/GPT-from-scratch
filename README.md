@@ -1,6 +1,6 @@
-# GPT-from-Scratch
+# GPT2-from-Scratch
 
-This repository contains a minimalist, educational implementation of a Generative Pre-trained Transformer (GPT) model—similar in spirit to GPT-2/GPT-3 architectures—constructed entirely from scratch. It aims to provide a transparent view of how the various components of a transformer-based language model fit together, including the tokenization, dataset creation, training loop, and inference steps.
+This repository contains a minimalist, educational implementation of a Generative Pre-trained Transformer (GPT) model—similar in spirit to GPT-2 architecture—constructed entirely from scratch. It aims to provide a transparent view of how the various components of a transformer-based language model fit together, including the tokenization, dataset creation, training loop, and inference steps.
 
 ## Features
 
