@@ -51,14 +51,14 @@ Implementing GPT from scratch offers a hands-on way to:
 2. **Training**:  
    Adjust hyperparameters (like batch size, learning rate, or model depth) in the training script, then run:
    ```bash
-   python train.py --data_path data/your_text_corpus.txt --epochs 5
+   python pretrain.py 
    ```
    This will train the model on the provided text corpus.
 
 3. **Sampling / Generation**:  
    After training, use the trained model weights to generate text:
    ```bash
-   python generate.py --prompt "Once upon a time"
+   python inference.py
    ```
    The script will produce a continuation of the prompt using the trained model.
 
